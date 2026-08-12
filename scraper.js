@@ -1,54 +1,43 @@
 const axios = require('axios');
-const cheerio = require('cheerio');
-const xml2js = require('xml2js');
 const fs = require('fs');
 
-// Masukkan URL sitemap XML Blogger Anda di sini
-const SITEMAP_URL = 'https://katakanji.blogspot.com/sitemap.xml';
+// Mengambil data langsung dari Feed JSON Blogger (maksimal 500 artikel sekaligus)
+const FEED_URL = 'https://katakanji.blogspot.com/feeds/posts/default?alt=json&max-results=500';
 
-async function fetchAndParseSitemap() {
+async function fetchBloggerData() {
     try {
-        console.log('Mengambil sitemap...');
-        const response = await axios.get(SITEMAP_URL);
-        const parser = new xml2js.Parser();
-        const result = await parser.parseStringPromise(response.data);
+        console.log('Mengambil data artikel dari Blogger Feed...');
+        const response = await axios.get(FEED_URL);
         
-        const urls = result.urlset.url.map(item => item.loc[0]);
-        console.log(`Ditemukan ${urls.length} tautan. Memulai scraping judul...`);
+        // Memastikan ada data artikel yang terdeteksi
+        const entries = response.data.feed.entry || [];
+        console.log(`Ditemukan ${entries.length} artikel. Menyusun database...`);
         
         let postsData = [];
 
-        for (let i = 0; i < urls.length; i++) {
-            let url = urls[i];
-            try {
-                const pageRes = await axios.get(url);
-                const $ = cheerio.load(pageRes.data);
-                
-                // Mengambil judul dari tag <title>
-                let title = $('title').text().trim();
-                
-                // Opsional: Membersihkan judul jika Blogger menambahkan nama blog di belakang (misal: "Judul Artikel - Katakanji")
-                // Jika ingin dihapus, hapus komentar pada baris di bawah ini dan sesuaikan teksnya.
-                // title = title.replace(' - Katakanji', '');
+        entries.forEach((entry) => {
+            // Mencari tautan asli postingan
+            const linkObj = entry.link.find(l => l.rel === 'alternate');
+            const url = linkObj ? linkObj.href : null;
+            
+            // Mengambil judul asli
+            const title = entry.title.$t;
 
+            if (url && title) {
                 postsData.push({
                     url: url,
                     judul_asli: title
                 });
-                
-                console.log(`[${i+1}/${urls.length}] Berhasil: ${title}`);
-            } catch (err) {
-                console.log(`[${i+1}/${urls.length}] Gagal mengakses: ${url}`);
             }
-        }
+        });
 
         // Menyimpan hasil ke posts.json
         fs.writeFileSync('posts.json', JSON.stringify(postsData, null, 2));
-        console.log('Proses selesai. File posts.json telah diperbarui.');
+        console.log(`Proses selesai. File posts.json sukses diperbarui dengan ${postsData.length} artikel.`);
 
     } catch (error) {
-        console.error('Terjadi kesalahan saat memproses sitemap:', error.message);
+        console.error('Terjadi kesalahan saat memproses data:', error.message);
     }
 }
 
-fetchAndParseSitemap();
+fetchBloggerData();
